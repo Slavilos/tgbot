@@ -1,7 +1,9 @@
 import asyncio
 import logging
+import os
 import sys
 
+from aiohttp import web
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.client.session.aiohttp import AiohttpSession
@@ -27,16 +29,37 @@ NETWORK_HELP = (
 )
 
 
-async def main() -> None:
+async def health(request):
+    return web.Response(text="Bot is running")
+
+
+async def start_http_server():
+    app = web.Application()
+    app.router.add_get("/", health)
+    app.router.add_get("/health", health)
+
+    runner = web.AppRunner(app)
+    await runner.setup()
+
+    port = int(os.getenv("PORT", "10000"))
+    site = web.TCPSite(runner, "0.0.0.0", port)
+    await site.start()
+
+    logger.info("HTTP server started on port %s", port)
+
+
+async def start_bot():
     settings = get_settings()
     db = MemberDatabase(settings.db_path)
 
     session = AiohttpSession(proxy=settings.proxy_url) if settings.proxy_url else None
+
     bot = Bot(
         token=settings.bot_token,
         session=session,
         default=DefaultBotProperties(parse_mode=ParseMode.HTML),
     )
+
     if settings.proxy_url:
         logger.info("Используется прокси: %s", settings.proxy_url)
 
@@ -53,7 +76,13 @@ async def main() -> None:
     dp.include_router(members.router)
 
     logger.info("Бот запущен: @%s", me.username)
+
     await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
+
+
+async def main():
+    await start_http_server()
+    await start_bot()
 
 
 if __name__ == "__main__":
